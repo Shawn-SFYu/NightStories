@@ -26,7 +26,11 @@ def login():
 @server.route("/upload", methods=["POST"])
 def upload():
     access, err = validate.token(request)
+    if err:
+        return err
+    print(access)
     access = json.loads(access)
+    print(access)
     if access["admin"]:
         if len(request.files) > 1 or request.files["file"].filename == "":
             return "Exactly one file required, Invalid input", 400
