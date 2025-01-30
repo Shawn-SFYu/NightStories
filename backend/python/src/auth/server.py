@@ -53,7 +53,7 @@ def validate():
 def createJWT(email, secret, authz):
     return jwt.encode(
         {
-            "email": email,
+            "username": email,
             "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1),
             "iat": datetime.datetime.now(datetime.timezone.utc),
             "admin": authz

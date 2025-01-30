@@ -17,4 +17,5 @@ COPY . /app
 
 EXPOSE 8080
 
+ENV PYTHONUNBUFFERED=1
 CMD ["python3", "server.py"]

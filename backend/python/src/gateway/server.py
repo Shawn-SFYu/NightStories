@@ -5,6 +5,12 @@ from auth import validate
 from auth_svc import access
 from storage import util
 
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
 server = Flask(__name__)
 server.config["MONGO_URI"] = "mongodb://host.minikube.internal:27017/videos"
 
@@ -28,9 +34,9 @@ def upload():
     access, err = validate.token(request)
     if err:
         return err
-    print(access)
+    logger.debug(f"Access value: {access}")    
     access = json.loads(access)
-    print(access)
+    logger.debug(f"Access value: {access}")
     if access["admin"]:
         if len(request.files) > 1 or request.files["file"].filename == "":
             return "Exactly one file required, Invalid input", 400
