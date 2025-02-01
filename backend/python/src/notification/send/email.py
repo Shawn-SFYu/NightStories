@@ -1,25 +1,27 @@
-import smtplib, os
-from email.message import EmailMessage
+import smtplib
+from email.mime.text import MIMEText
+import os
 import json
+
 def notification(message):
     try:
         message = json.loads(message)
         mp3_fid = message["mp3_fid"]
-        sender_address = os.environ.get("GMAIL_ADDRESS")
-        sender_password = os.environ.get("GMAIL_PASSWORD")
+        sender_email = os.getenv('EMAIL_USER')
+        password = os.getenv('EMAIL_PASSWORD')
         receiver_address = message["username"]
 
-        msg = EmailMessage()
-        msg.set_content("MP3 ready for download: {}".format(mp3_fid)) 
-        msg["Subject"] = "MP3 ready for download"
-        msg["From"] = sender_address
-        msg["To"] = receiver_address
+        msg = MIMEText("MP3 ready for download: {}".format(mp3_fid))
+        msg['Subject'] = "MP3 ready for download"
+        msg['From'] = sender_email
+        msg['To'] = receiver_address
 
-        smtp_server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-        smtp_server.login(sender_address, os.environ.get("GMAIL_PASSWORD"))
-        smtp_server.sendmail(sender_address, receiver_address, msg.as_string())
-        smtp_server.quit() 
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, password)
+            server.send_message(msg)
+            
         print("Email sent successfully")
+        return True, None
     except Exception as e:
-        print(e) 
-        return e
+        print(e)
+        return False, str(e)
