@@ -16,12 +16,47 @@ const TTSPage = () => {
     const [audioUrl, setAudioUrl] = useState(null);
 
     // Simulate generating audio when the form is submitted.
-    const handleGenerateAudio = (e) => {
+    const handleGenerateAudio = async (e) => {
         e.preventDefault();
-        // TODO: Replace with your API call to generate audio from text.
-        // For demonstration, we simulate an audio file URL.
-        const simulatedAudioUrl = 'path-to-your-generated-audio.mp3';
-        setAudioUrl(simulatedAudioUrl);
+        const token = localStorage.getItem('auth-token');
+        
+        try {
+            // Submit text for conversion
+            const response = await fetch('http://localhost:5000/tts/submit', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text }),
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                // Poll for audio completion
+                const checkAudioStatus = setInterval(async () => {
+                    const statusResponse = await fetch(`http://localhost:5000/tts/status/${data.task_id}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                        },
+                    });
+                    const statusData = await statusResponse.json();
+                    
+                    if (statusData.status === 'completed') {
+                        clearInterval(checkAudioStatus);
+                        setAudioUrl(`http://localhost:5000/tts/audio/${statusData.file_id}`);
+                    } else if (statusData.status === 'failed') {
+                        clearInterval(checkAudioStatus);
+                        alert('Audio generation failed');
+                    }
+                }, 2000); // Check every 2 seconds
+            } else {
+                alert(data.error);
+            }
+        } catch (error) {
+            console.error('Audio generation error:', error);
+            alert('Failed to submit text for conversion');
+        }
     };
 
     // Play the audio file when the button is clicked.
