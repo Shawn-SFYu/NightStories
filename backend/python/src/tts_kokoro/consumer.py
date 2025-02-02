@@ -1,6 +1,6 @@
 import io
 import numpy as np
-
+import pika, json, sys, os
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from bson.objectid import ObjectId
@@ -10,6 +10,9 @@ import logging
 import gridfs
 from flask_pymongo import PyMongo
 import certifi
+import soundfile as sf
+from kokoro import KPipeline
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -17,11 +20,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# MongoDB Configuration
-app.config["MONGO_URI"] = ("mongodb+srv://shawnsfyuan:oGXOr3OVoJ3v75xX@"
-                          "cluster0.0gcau.mongodb.net/nightstories?"
-                          "retryWrites=true&w=majority&"
-                          "tlsCAFile=" + certifi.where())
+load_dotenv()
+
+# Update MongoDB Configuration
+app.config["MONGO_URI"] = os.environ.get("MONGO_URI")
 try:
     mongo = PyMongo(app)
     mongo.db.command('ping')
@@ -30,24 +32,16 @@ try:
 except Exception as e:
     logger.error(f"MongoDB connection error: {str(e)}")
 
-
-from kokoro import KPipeline
-import soundfile as sf
-# 🇺🇸 'a' => American English, 🇬🇧 'b' => British English
-# 🇯🇵 'j' => Japanese: pip install misaki[ja]
-# 🇨🇳 'z' => Mandarin Chinese: pip install misaki[zh]
-pipeline = KPipeline(lang_code='a') # <= make sure lang_code matches voice
-
+# Initialize TTS pipeline
+pipeline = KPipeline(lang_code='a')
 
 def generate_audio(generator):
     audio_segments = []
     
     for i, (gs, ps, audio) in enumerate(generator):
         audio_segments.append(audio)
-    
     # Concatenate all audio segments
     combined_audio = np.concatenate(audio_segments)
-    
     # Save to BytesIO instead of file
     audio_buffer = io.BytesIO()
     sf.write(audio_buffer, combined_audio, 24000, format='WAV')
@@ -55,6 +49,56 @@ def generate_audio(generator):
     
     return audio_buffer
 
+def process_tts(message):
+    try:
+        data = json.loads(message)
+        
+        generator = pipeline(
+            data['text'],
+            voice='af_heart',
+            speed=1,
+            split_pattern=r'\n+'
+        )
+        
+        audio_buffer = generate_audio(generator)
+        
+        file_id = fs.put(
+            audio_buffer.getvalue(),
+            filename=f'tts_{data["task_id"]}.wav',
+            content_type='audio/wav',
+            task_id=data['task_id'],
+            user_id=data['user_id']
+        )
+        return str(file_id)
+    except Exception as e:
+        logger.error(f"TTS processing error: {str(e)}")
+        return None
+
+def main():
+    connection = pika.BlockingConnection(
+        pika.ConnectionParameters(os.environ.get("RABBITMQ_HOST", "rabbitmq"))
+    )
+    channel = connection.channel()
+    
+    channel.queue_declare(queue="tts_queue", durable=True)
+    
+    def callback(ch, method, properties, body):
+        file_id = process_tts(body)
+        if file_id:
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+        else:
+            ch.basic_nack(delivery_tag=method.delivery_tag)
+    
+    channel.basic_consume(
+        queue="tts_queue",
+        on_message_callback=callback
+    )
+    
+    print("TTS Consumer waiting for messages...")
+    channel.start_consuming()
+
+
+'''
 @app.route("/tts/generate", methods=["POST"])
 def generate_tts():
     try:
@@ -105,6 +149,14 @@ def get_audio(file_id):
             "success": False,
             "error": "Failed to retrieve audio"
         }), 500
-    
+    '''
+
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=6000, debug=True)
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("Interrupted")
+        try:
+            sys.exit(0)
+        except SystemExit:
+            os._exit(0)

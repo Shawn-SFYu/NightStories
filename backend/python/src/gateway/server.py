@@ -8,6 +8,12 @@ import os
 import gridfs
 import logging
 import certifi
+import pika
+from dotenv import load_dotenv
+
+from auth_svc import access
+from auth import validate
+from tts.producer import submit_tts
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -18,11 +24,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# MongoDB Configuration
-app.config["MONGO_URI"] = ("mongodb+srv://shawnsfyuan:oGXOr3OVoJ3v75xX@"
-                           "cluster0.0gcau.mongodb.net/nightstories?"
-                           "retryWrites=true&w=majority&"
-                           "tlsCAFile=" + certifi.where() )
+load_dotenv() 
+
+# Update MongoDB Configuration
+app.config["MONGO_URI"] = os.environ.get("MONGO_URI")
 
 try:
     mongo = PyMongo(app)
@@ -33,8 +38,16 @@ try:
 
     if "users" not in collections or "audio" not in collections:
         raise Exception("Database not initialized")
+
+    # Update RabbitMQ connection
+    connection = pika.BlockingConnection(
+        pika.ConnectionParameters(os.environ.get("RABBITMQ_HOST", "rabbitmq"))
+    )
+    channel = connection.channel()
+    channel.queue_declare(queue="tts_queue", durable=True)
+    
 except Exception as e:
-    logger.error(f"MongoDB connection error: {str(e)}")
+    logger.error(f"Initialization error: {str(e)}")
 
 
 # Collections will be:
@@ -43,60 +56,11 @@ except Exception as e:
 
 @app.route('/register', methods=['POST'])
 def register():
-    try:
-        data = request.json
-        # Check if user already exists
-        if mongo.db.users.find_one({"email": data['email']}):
-            return jsonify({
-                "success": False, 
-                "errors": "Email already registered"
-            }), 409
-
-        # Create new user
-        user = {
-            "email": data['email'],
-            "password": data['password'],  # In production, hash this!
-            "created_at": datetime.datetime.now(datetime.timezone.utc)
-        }
-        mongo.db.users.insert_one(user)
-
-        return jsonify({"success": True}), 201
-
-    except Exception as e:
-        logger.error(f"Registration error: {str(e)}")
-        return jsonify({
-            "success": False, 
-            "errors": "Registration failed"
-        }), 500
+    return access.register_user(mongo, request.json)
 
 @app.route('/login', methods=['POST'])
 def login():
-    try:
-        data = request.json
-        user = mongo.db.users.find_one({
-            "email": data['email'],
-            "password": data['password']  # In production, verify hash!
-        })
-
-        print(user, flush=True)
-        if not user:
-            return jsonify({
-                "success": False, 
-                "errors": "Invalid credentials"
-            }), 401
-            
-        token = create_jwt(str(user['_id']))
-        return jsonify({
-            "success": True, 
-            "token": token
-        })
-    
-    except Exception as e:
-        logger.error(f"Login error: {str(e)}")
-        return jsonify({
-            "success": False, 
-            "errors": "Login failed"
-        }), 500
+    return access.login_user(mongo, request.json)
 
 @app.route('/tts/generate', methods=['POST'])
 def generate_audio():
@@ -173,6 +137,36 @@ def get_audio(file_id):
             "errors": "Audio retrieval failed"
         }), 500
 
+@app.route('/tts/submit', methods=['POST'])
+def handle_tts_submit():
+    return submit_tts(channel, validate.token)
+
+@app.route('/tts/status/<task_id>', methods=['GET'])
+def get_tts_status(task_id):
+    try:
+        # Verify token
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"success": False, "errors": "No token provided"}), 401
+
+        user_id = validate.token(token.split(' ')[1])
+        if not user_id:
+            return jsonify({"success": False, "errors": "Invalid token"}), 401
+
+        # Check if audio file exists with this task_id
+        audio_file = mongo.db.fs.files.find_one({"task_id": task_id})
+        if audio_file:
+            return jsonify({
+                "status": "completed",
+                "file_id": str(audio_file._id)
+            })
+        
+        return jsonify({"status": "processing"})
+
+    except Exception as e:
+        logger.error(f"Status check error: {str(e)}")
+        return jsonify({"status": "failed"}), 500
+'''
 def create_jwt(user_id):
     return jwt.encode(
         {
@@ -194,6 +188,6 @@ def verify_jwt(token):
         return decoded['user_id']
     except:
         return None
-
+'''
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)
