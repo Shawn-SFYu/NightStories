@@ -1,14 +1,36 @@
 import React, { useState } from 'react';
 import './css/LoginPage.css';
+import { useNavigate } from 'react-router-dom';
 
 const LoginPage = () => {
   const [accountName, setAccountName] = useState('');
   const [password, setPassword] = useState('');
+  const navigate = useNavigate();
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    // TODO: Add your login API call or authentication logic here.
-    console.log('Logging in with:', { accountName, password });
+    try {
+      const response = await fetch('http://localhost:5000/login', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email:accountName, password }),
+      });
+
+      const data = await response.json();
+      console.log(data);
+      if (data.success) {
+        localStorage.setItem('auth-token', data.token);
+        navigate('/tts');
+      } else {
+        alert(data.errors);
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      alert('Login failed. Please try again.');
+    }
   };
 
   return (
