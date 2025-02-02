@@ -1,15 +1,13 @@
 import io
 import numpy as np
 import pika, json, sys, os
-from flask import Flask, request, jsonify, send_file
+from flask import Flask
 from flask_cors import CORS
-from bson.objectid import ObjectId
+import certifi
 
-import datetime
 import logging
 import gridfs
 from flask_pymongo import PyMongo
-import certifi
 import soundfile as sf
 from kokoro import KPipeline
 from dotenv import load_dotenv
@@ -23,7 +21,7 @@ CORS(app)
 load_dotenv()
 
 # Update MongoDB Configuration
-app.config["MONGO_URI"] = os.environ.get("MONGO_URI")
+app.config["MONGO_URI"] = (os.environ.get("MONGO_URI") + "&tlsCAFile=" + certifi.where())
 try:
     mongo = PyMongo(app)
     mongo.db.command('ping')
@@ -44,7 +42,7 @@ def generate_audio(generator):
     combined_audio = np.concatenate(audio_segments)
     # Save to BytesIO instead of file
     audio_buffer = io.BytesIO()
-    sf.write(audio_buffer, combined_audio, 24000, format='WAV')
+    sf.write(audio_buffer, combined_audio, 24000, format='MP3')
     audio_buffer.seek(0)
     
     return audio_buffer
@@ -64,8 +62,8 @@ def process_tts(message):
         
         file_id = fs.put(
             audio_buffer.getvalue(),
-            filename=f'tts_{data["task_id"]}.wav',
-            content_type='audio/wav',
+            filename=f'tts_{data["task_id"]}.mp3',
+            content_type='audio/mp3',
             task_id=data['task_id'],
             user_id=data['user_id']
         )
@@ -96,60 +94,6 @@ def main():
     
     print("TTS Consumer waiting for messages...")
     channel.start_consuming()
-
-
-'''
-@app.route("/tts/generate", methods=["POST"])
-def generate_tts():
-    try:
-        data = request.json
-        text = data.get("text")
-        voice = data.get("voice", "af_heart")
-        speed = data.get("speed", 1)
-        split_pattern = data.get("split_pattern", r'\n+')
-        generator = pipeline(
-            text, voice, 
-            speed, split_pattern)
-        audio_buffer = generate_audio(generator)
-
-        file_id = fs.put(
-            audio_buffer.getvalue(), 
-            filename=f'tts_{datetime.datetime.utcnow().timestamp()}.wav',
-            content_type='audio/wav'
-        )
-        
-        return jsonify({
-            "success": True,
-            "file_id": str(file_id)
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"TTS generation error: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": "Failed to generate audio"
-        }), 500
-
-@app.route('/tts/audio/<file_id>', methods=['GET'])
-def get_audio(file_id):
-    try:
-        # Retrieve from GridFS
-        audio_file = fs.get(ObjectId(file_id))
-        
-        return send_file(
-            io.BytesIO(audio_file.read()),
-            mimetype='audio/wav',
-            as_attachment=True,
-            download_name=f'tts_audio_{file_id}.wav'
-        )
-        
-    except Exception as e:
-        logger.error(f"Audio retrieval error: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": "Failed to retrieve audio"
-        }), 500
-    '''
 
 if __name__ == '__main__':
     try:

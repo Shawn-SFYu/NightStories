@@ -2,6 +2,13 @@ from flask import jsonify
 import jwt
 import datetime
 import os
+from dotenv import load_dotenv
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 def create_jwt(user_id):
     return jwt.encode(
@@ -10,7 +17,7 @@ def create_jwt(user_id):
             "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1),
             "iat": datetime.datetime.now(datetime.timezone.utc),
         },
-        os.environ.get('JWT_SECRET', 'your-secret-key'),
+        os.environ.get('JWT_SECRET'),
         algorithm="HS256"
     )
 
@@ -34,6 +41,7 @@ def login_user(mongo, data):
         })
     
     except Exception as e:
+        logger.error(f"Login failed: {str(e)}")
         return jsonify({
             "success": False, 
             "errors": "Login failed"
@@ -57,6 +65,7 @@ def register_user(mongo, data):
         return jsonify({"success": True}), 201
 
     except Exception as e:
+        logger.error(f"Registration failed: {str(e)}")
         return jsonify({
             "success": False, 
             "errors": "Registration failed"

@@ -22,4 +22,4 @@ for i, (gs, ps, audio) in enumerate(generator):
     print(i)  # i => index
     print(gs) # gs => graphemes/text
     print(ps) # ps => phonemes
-    sf.write(f'{i}.wav', audio, 24000) # save each audio file
+    sf.write(f'{i}.mp3', audio, 24000) # save each audio file

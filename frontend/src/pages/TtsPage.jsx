@@ -18,7 +18,6 @@ const TTSPage = () => {
     // Simulate generating audio when the form is submitted.
     const handleGenerateAudio = async (e) => {
         e.preventDefault();
-        const token = localStorage.getItem('auth-token');
         
         try {
             // Submit text for conversion
