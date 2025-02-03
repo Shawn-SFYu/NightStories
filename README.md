@@ -2,14 +2,6 @@
 
 Stories Now is an AI-powered storytelling application that converts text to speech using advanced AI models. Initially designed for family use, it's expanding to include more features like summarization and text-to-image capabilities.
 
-## Features
-
-- Text-to-Speech conversion using AI
-- User authentication
-- Real-time status tracking for audio generation
-- Secure file storage and retrieval
-- Modern, responsive UI
-
 ## Architecture
 
 The application uses a microservices architecture with the following components:
