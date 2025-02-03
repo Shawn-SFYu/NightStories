@@ -10,6 +10,8 @@ import pika
 from dotenv import load_dotenv
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
+from pymongo import MongoClient, IndexModel, ASCENDING
+from contextlib import contextmanager
 
 from auth_svc import access
 from auth import validate
@@ -28,32 +30,79 @@ CORS(app)
 load_dotenv()
 
 # Update MongoDB Configuration
-app.config["MONGO_URI"] = (os.environ.get("MONGO_URI") + "&tlsCAFile=" + certifi.where())
-
 try:
+    mongo_uri = os.environ.get("MONGO_URI")
+    if "?" in mongo_uri:
+        app.config["MONGO_URI"] = f"{mongo_uri}&tlsCAFile={certifi.where()}"
+    else:
+        app.config["MONGO_URI"] = f"{mongo_uri}?tlsCAFile={certifi.where()}"
+
+    # Initialize MongoDB and GridFS
     mongo = PyMongo(app)
     mongo.db.command('ping')
     logger.info("MongoDB connection successful")
-    fs = gridfs.GridFS(mongo.db)  # For storing audio files
-    collections = mongo.db.list_collection_names()
-
-    if "users" not in collections or "audio" not in collections:
-        raise Exception("Database not initialized")
-
-    # Initialize RabbitMQ connection
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(os.environ.get("RABBITMQ_HOST"))
-    )
-    channel = connection.channel()
-    channel.queue_declare(queue="tts_queue", durable=True)
+    fs = gridfs.GridFS(mongo.db)
     
-except Exception as e:
-    logger.error(f"Initialization error: {str(e)}")
+    # Create index safely using the correct collection access method
+    try:
+        # Access fs.files collection correctly through mongo.db
+        fs_files_collection = mongo.db['fs.files']
+        
+        # Check if index exists
+        existing_indexes = fs_files_collection.index_information()
+        index_name = "metadata.task_id_1_metadata.user_id_1"
+        
+        if index_name not in existing_indexes:
+            fs_files_collection.create_index(
+                [
+                    ("metadata.task_id", 1), 
+                    ("metadata.user_id", 1)
+                ],
+                name=index_name
+            )
+            logger.info("Created index on fs.files collection")
+        else:
+            logger.info("Index already exists on fs.files collection")
+            
+    except Exception as e:
+        logger.warning(f"Index creation warning (non-fatal): {str(e)}")
+        # Continue even if index creation fails
+        pass
 
+except Exception as e:
+    logger.error(f"MongoDB initialization error: {str(e)}")
+    raise
 
 # Collections will be:
 # - users: user information and authentication
 # - audio_files: metadata about audio files (actual files in GridFS)
+
+# Add RabbitMQ connection management
+@contextmanager
+def get_rabbitmq_channel():
+    try:
+        # Initialize RabbitMQ connection
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(
+                host=os.environ.get("RABBITMQ_HOST", "localhost"),
+                port=5672,
+                credentials=pika.PlainCredentials('guest', 'guest'),
+                connection_attempts=3,
+                retry_delay=5
+            )
+        )
+        channel = connection.channel()
+        channel.queue_declare(queue="tts_queue", durable=True)
+        logger.info("RabbitMQ connection established")
+        yield channel
+    except Exception as e:
+        logger.error(f"RabbitMQ connection error: {str(e)}")
+        raise
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -66,40 +115,27 @@ def login():
 @app.route('/tts/audio/<file_id>', methods=['GET'])
 def get_audio(file_id):
     try:
-        # Verify token
-        token = request.headers.get('Authorization')
-        if not token:
-            return jsonify({"success": False, "errors": "No token provided"}), 401
-
-        user_id = validate.token(token.split(' ')[1])
-        if not user_id:
-            return jsonify({"success": False, "errors": "Invalid token"}), 401
-
-        # Get audio file from GridFS
-        try:
-            file_id_obj = ObjectId(file_id)
-            audio_file = fs.get(file_id_obj)
-
-            if not audio_file:
-                return jsonify({"success": False, "errors": "Audio file not found"}), 404
-            return send_file(
-                audio_file,
-                mimetype='audio/mp3',
-                as_attachment=True,
-                download_name=f"audio_{file_id}.mp3"
-            )
-        except InvalidId:
-            return jsonify({"success": False, "errors": "Invalid file ID"}), 400
+        # Convert string ID to ObjectId
+        file_id = ObjectId(file_id)
+        
+        # Get file from GridFS
+        audio_data = fs.get(file_id)
+        
+        return send_file(
+            audio_data,
+            mimetype='audio/mp3',
+            as_attachment=True,
+            download_name=f'audio_{file_id}.mp3'
+        )
+        
     except Exception as e:
         logger.error(f"Audio retrieval error: {str(e)}")
-        return jsonify({
-            "success": False,
-            "errors": "Audio retrieval failed"
-        }), 500
+        return jsonify({"success": False, "error": "Failed to retrieve audio"}), 500
 
 @app.route('/tts/submit', methods=['POST'])
 def handle_tts_submit():
-    return submit_tts(channel, validate.token)
+    with get_rabbitmq_channel() as channel:
+        return submit_tts(channel, validate.token)
 
 @app.route('/tts/status/<task_id>', methods=['GET'])
 def get_tts_status(task_id):
@@ -113,14 +149,22 @@ def get_tts_status(task_id):
         if not user_id:
             return jsonify({"success": False, "errors": "Invalid token"}), 401
 
-        # Check if audio file exists with this task_id
-        audio_file = mongo.db.fs.files.find_one({"task_id": task_id})
-        if audio_file:
+        logger.debug(f"Checking status for task_id: {task_id}, user_id: {user_id}")
+
+        # Fix: Use proper GridFS file lookup
+        file_exists = mongo.db['fs.files'].find_one({
+            "metadata.task_id": task_id,
+            "metadata.user_id": user_id
+        })
+        
+        if file_exists:
+            logger.info(f"Found audio file with id: {file_exists['_id']}")
             return jsonify({
                 "status": "completed",
-                "file_id": str(audio_file._id)
+                "file_id": str(file_exists['_id'])
             })
         
+        logger.info(f"No audio file found for task_id: {task_id}")
         return jsonify({"status": "processing"})
 
     except Exception as e:

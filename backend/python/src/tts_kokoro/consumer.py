@@ -4,6 +4,7 @@ import pika, json, sys, os
 from flask import Flask
 from flask_cors import CORS
 import certifi
+import time
 
 import logging
 import gridfs
@@ -21,7 +22,11 @@ CORS(app)
 load_dotenv()
 
 # Update MongoDB Configuration
-app.config["MONGO_URI"] = (os.environ.get("MONGO_URI") + "&tlsCAFile=" + certifi.where())
+mongo_uri = os.environ.get("MONGO_URI")
+if "?" in mongo_uri:
+    app.config["MONGO_URI"] = f"{mongo_uri}&tlsCAFile={certifi.where()}"
+else:
+    app.config["MONGO_URI"] = f"{mongo_uri}?tlsCAFile={certifi.where()}"
 try:
     mongo = PyMongo(app)
     mongo.db.command('ping')
@@ -64,8 +69,10 @@ def process_tts(message):
             audio_buffer.getvalue(),
             filename=f'tts_{data["task_id"]}.mp3',
             content_type='audio/mp3',
-            task_id=data['task_id'],
-            user_id=data['user_id']
+            metadata={
+                'task_id': data['task_id'],
+                'user_id': data['user_id']
+            }
         )
         return str(file_id)
     except Exception as e:
@@ -73,34 +80,66 @@ def process_tts(message):
         return None
 
 def main():
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(os.environ.get("RABBITMQ_HOST", "rabbitmq"))
-    )
-    channel = connection.channel()
+    # Add retry logic and explicit connection parameters
+    max_retries = 5
+    retry_count = 0
     
-    channel.queue_declare(queue="tts_queue", durable=True)
+    # Get host from environment or default to localhost if using port-forward
+    rabbitmq_host = os.environ.get("RABBITMQ_HOST", "localhost")
+    logger.info(f"Attempting to connect to RabbitMQ at {rabbitmq_host}")
     
-    def callback(ch, method, properties, body):
-        file_id = process_tts(body)
-        if file_id:
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-        else:
-            ch.basic_nack(delivery_tag=method.delivery_tag)
-    
-    channel.basic_consume(
-        queue="tts_queue",
-        on_message_callback=callback
-    )
-    
-    print("TTS Consumer waiting for messages...")
-    channel.start_consuming()
+    while retry_count < max_retries:
+        try:
+            # More explicit connection parameters
+            parameters = pika.ConnectionParameters(
+                host=rabbitmq_host,
+                port=5672,
+                virtual_host='/',
+                credentials=pika.PlainCredentials('guest', 'guest'),
+                connection_attempts=3,
+                retry_delay=5,
+                socket_timeout=5
+            )
+            
+            logger.info("Connecting to RabbitMQ...")
+            connection = pika.BlockingConnection(parameters)
+            channel = connection.channel()
+            
+            # Declare the queue
+            channel.queue_declare(queue="tts_queue", durable=True)
+            logger.info("Successfully connected to RabbitMQ")
+            
+            def callback(ch, method, properties, body):
+                try:
+                    logger.info("Received message")
+                    file_id = process_tts(body)
+                    if file_id:
+                        ch.basic_ack(delivery_tag=method.delivery_tag)
+                    else:
+                        ch.basic_nack(delivery_tag=method.delivery_tag)
+                except Exception as e:
+                    logger.error(f"Error processing message: {str(e)}")
+                    ch.basic_nack(delivery_tag=method.delivery_tag)
+            
+            channel.basic_consume(
+                queue="tts_queue",
+                on_message_callback=callback
+            )
+            
+            logger.info("Starting to consume messages...")
+            channel.start_consuming()
+            
+        except pika.exceptions.AMQPConnectionError as e:
+            retry_count += 1
+            logger.error(f"Failed to connect to RabbitMQ (attempt {retry_count}/{max_retries}): {str(e)}")
+            if retry_count == max_retries:
+                raise
+            time.sleep(5)  # Wait before retrying
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("Interrupted")
-        try:
-            sys.exit(0)
-        except SystemExit:
-            os._exit(0)
+        logger.info("Shutting down...")
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}")

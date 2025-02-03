@@ -89,7 +89,7 @@ const TTSPage = () => {
                 <audio controls src={audioUrl}>
                     Your browser does not support the audio element.
                 </audio>
-                <button onClick={handlePlayAudio}>Play Audio</button>
+                {/*<button onClick={handlePlayAudio}>Play Audio</button>*/}
                 </div>
             ) : (
                 <p>No audio generated yet.</p>
