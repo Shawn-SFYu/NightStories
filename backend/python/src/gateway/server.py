@@ -12,6 +12,9 @@ from bson.objectid import ObjectId
 from bson.errors import InvalidId
 from pymongo import MongoClient, IndexModel, ASCENDING
 from contextlib import contextmanager
+import json
+from werkzeug.utils import secure_filename
+import datetime
 
 from auth_svc import access
 from auth import validate
@@ -170,6 +173,76 @@ def get_tts_status(task_id):
     except Exception as e:
         logger.error(f"Status check error: {str(e)}")
         return jsonify({"status": "failed"}), 500
+
+@app.route('/documents/upload', methods=['POST'])
+def upload_document():
+    try:
+        # Verify token
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"success": False, "errors": "No token provided"}), 401
+
+        user_id = validate.token(token.split(' ')[1])
+        if not user_id:
+            return jsonify({"success": False, "errors": "Invalid token"}), 401
+
+        # Check if PDF file is present
+        if 'file' not in request.files:
+            return jsonify({"success": False, "error": "No file provided"}), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"success": False, "error": "No file selected"}), 400
+            
+        if not file.filename.endswith('.pdf'):
+            return jsonify({"success": False, "error": "Only PDF files are allowed"}), 400
+
+        # Create document record with initial status
+        doc_id = str(ObjectId())
+        mongo.db.documents.insert_one({
+            "_id": ObjectId(doc_id),
+            "user_id": user_id,
+            "type": "pdf",
+            "status": "processing",
+            "filename": secure_filename(file.filename),
+            "created_at": datetime.datetime.utcnow()
+        })
+
+        # Save PDF to GridFS for processing
+        pdf_id = fs.put(file, 
+                       filename=secure_filename(file.filename),
+                       metadata={"doc_id": doc_id, "user_id": user_id})
+
+        # Queue PDF for processing
+        with get_rabbitmq_channel() as channel:
+            channel.queue_declare(queue="pdf_queue", durable=True)
+            message = {
+                "doc_id": doc_id,
+                "pdf_id": str(pdf_id),
+                "user_id": user_id
+            }
+            
+            channel.basic_publish(
+                exchange="",
+                routing_key="pdf_queue",
+                body=json.dumps(message),
+                properties=pika.BasicProperties(
+                    delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE
+                ),
+            )
+
+        return jsonify({
+            "success": True,
+            "document_id": doc_id,
+            "status": "processing"
+        })
+
+    except Exception as e:
+        logger.error(f"Document upload error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to process document"
+        }), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)
