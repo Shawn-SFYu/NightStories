@@ -45,6 +45,27 @@ def init_db():
             })
             logger.info("Created test user")
 
+        # Existing collections
+        if "documents" not in mongo.db.list_collection_names():
+            mongo.db.create_collection("documents")
+            mongo.db.documents.create_index([
+                ("user_id", 1),
+                ("type", 1)
+            ])
+            logger.info("Created documents collection")
+            
+        # Create vector store collection
+        if "vectors" not in mongo.db.list_collection_names():
+            mongo.db.create_collection("vectors")
+            mongo.db.vectors.create_index([
+                ("document_id", 1),
+                ("chapter_id", 1)
+            ])
+            mongo.db.vectors.create_index([
+                ("embedding", "2dsphere")
+            ])
+            logger.info("Created vectors collection")
+
         logger.info("Database initialization complete")
 
     except Exception as e:
