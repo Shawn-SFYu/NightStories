@@ -244,5 +244,39 @@ def upload_document():
             "error": "Failed to process document"
         }), 500
 
+@app.route('/documents', methods=['GET'])
+def get_documents():
+    try:
+        # Verify token
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"success": False, "errors": "No token provided"}), 401
+
+        user_id = validate.token(token.split(' ')[1])
+        if not user_id:
+            return jsonify({"success": False, "errors": "Invalid token"}), 401
+
+        # Fetch documents for the user
+        documents = list(mongo.db.documents.find(
+            {"user_id": user_id}
+        ).sort("created_at", -1))  # Most recent first
+
+        # Convert ObjectId and datetime to string for JSON serialization
+        for doc in documents:
+            doc['_id'] = str(doc['_id'])
+            doc['created_at'] = doc['created_at'].isoformat()
+
+        return jsonify({
+            "success": True,
+            "documents": documents
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching documents: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to fetch documents"
+        }), 500
+
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)
