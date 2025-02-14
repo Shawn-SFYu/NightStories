@@ -5,6 +5,8 @@ from flask import Flask
 from flask_cors import CORS
 import certifi
 import time
+import threading
+from queue import Queue, Empty
 
 import logging
 import gridfs
@@ -109,17 +111,12 @@ def process_tts(message):
         return None
 
 def main():
-    # Add retry logic and explicit connection parameters
-    max_retries = 5
-    retry_count = 0
-    
-    # Get host from environment or default to localhost if using port-forward
-    rabbitmq_host = os.environ.get("RABBITMQ_HOST", "localhost")
-    logger.info(f"Attempting to connect to RabbitMQ at {rabbitmq_host}")
-    
-    while retry_count < max_retries:
+    while True:
         try:
-            # More explicit connection parameters
+            # Get host from environment or default to localhost if using port-forward
+            rabbitmq_host = os.environ.get("RABBITMQ_HOST", "localhost")
+            logger.info(f"Attempting to connect to RabbitMQ at {rabbitmq_host}")
+            
             parameters = pika.ConnectionParameters(
                 host=rabbitmq_host,
                 port=5672,
@@ -127,7 +124,8 @@ def main():
                 credentials=pika.PlainCredentials('guest', 'guest'),
                 connection_attempts=3,
                 retry_delay=5,
-                socket_timeout=5
+                socket_timeout=600,  # 10 minutes
+                heartbeat=120  # 2 minutes
             )
             
             logger.info("Connecting to RabbitMQ...")
@@ -136,21 +134,42 @@ def main():
             
             # Declare the queue
             channel.queue_declare(queue="tts_queue", durable=True)
+            channel.basic_qos(prefetch_count=1)
             logger.info("Successfully connected to RabbitMQ")
             
             def callback(ch, method, properties, body):
                 try:
                     logger.info("Received new message")
                     message = body.decode()
-                    logger.info("Processing message")
-                    file_id = process_tts(message)
                     
-                    if file_id:
-                        logger.info("Successfully processed message")
-                        ch.basic_ack(delivery_tag=method.delivery_tag)
-                    else:
-                        logger.error("Failed to process message")
-                        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                    # Create a queue to get the result from the thread
+                    result_queue = Queue()
+                    
+                    # Create and start processing thread
+                    def process_thread():
+                        try:
+                            file_id = process_tts(message)
+                            result_queue.put(('success', file_id))
+                        except Exception as e:
+                            result_queue.put(('error', str(e)))
+                    
+                    thread = threading.Thread(target=process_thread)
+                    thread.daemon = True  # Make thread daemon so it exits when main thread exits
+                    thread.start()
+                    
+                    # Poll the queue instead of blocking with join()
+                    while thread.is_alive():
+                        try:
+                            status, result = result_queue.get(timeout=1.0)  # Check every second
+                            if status == 'success' and result:
+                                logger.info("Successfully processed message")
+                                ch.basic_ack(delivery_tag=method.delivery_tag)
+                            else:
+                                logger.error(f"Failed to process message: {result}")
+                                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                            break
+                        except Empty:
+                            continue  # Keep polling if no result yet
                     
                 except Exception as e:
                     logger.error(f"Error in callback: {str(e)}")
@@ -165,12 +184,12 @@ def main():
             logger.info("Starting to consume messages...")
             channel.start_consuming()
             
-        except pika.exceptions.AMQPConnectionError as e:
-            retry_count += 1
-            logger.error(f"Failed to connect to RabbitMQ (attempt {retry_count}/{max_retries}): {str(e)}")
-            if retry_count == max_retries:
-                raise
-            time.sleep(5)  # Wait before retrying
+        except (pika.exceptions.ConnectionClosedByBroker,
+                pika.exceptions.AMQPConnectionError) as e:
+            logger.error(f"Connection lost: {str(e)}")
+            logger.info("Attempting to reconnect in 5 seconds...")
+            time.sleep(5)
+            continue
 
 if __name__ == "__main__":
     try:
