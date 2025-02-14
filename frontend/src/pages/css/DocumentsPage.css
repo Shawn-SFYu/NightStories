@@ -1,8 +1,21 @@
 .documents-container {
-    max-width: 800px;
+    max-width: 1200px;
     margin: 40px auto;
     padding: 20px;
     font-family: Arial, sans-serif;
+}
+
+.documents-layout {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 30px;
+}
+
+.documents-section {
+    background: #ffffff;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .upload-section {
@@ -10,8 +23,9 @@
     padding: 30px;
     border-radius: 10px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    margin-bottom: 30px;
-    text-align: center;
+    position: sticky;
+    top: 20px;
+    height: fit-content;
 }
 
 .upload-section h2 {

@@ -85,44 +85,48 @@ const DocumentsPage = () => {
 
     return (
         <div className="documents-container">
-            <div className="upload-section">
-                <h2>Upload Document</h2>
-                <form onSubmit={handleUpload}>
-                    <input 
-                        type="file" 
-                        accept=".pdf"
-                        onChange={handleFileChange}
-                    />
-                    <button type="submit" disabled={!selectedFile}>
-                        Upload PDF
-                    </button>
-                </form>
-            </div>
-
-            <div className="documents-list">
-                <h2>Your Documents</h2>
-                {documents.map((doc) => (
-                    <div key={doc._id} className="document-card">
-                        <div className="document-header">
-                            <h3>{doc.filename}</h3>
-                            <span className={`status-badge ${doc.status}`}>
-                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                            </span>
-                        </div>
-                        {doc.status === 'completed' && (
-                            <div className="chapters-list">
-                                {doc.chapters.map((chapter, index) => (
-                                    <div key={index} className="chapter-item">
-                                        <span>{chapter.title}</span>
-                                        <button onClick={() => handleTTSConvert(doc._id, index)}>
-                                            Convert to Speech
-                                        </button>
+            <div className="documents-layout">
+                <div className="documents-section">
+                    <h2>Your Documents</h2>
+                    <div className="documents-list">
+                        {documents.map((doc) => (
+                            <div key={doc._id} className="document-card">
+                                <div className="document-header">
+                                    <h3>{doc.filename}</h3>
+                                    <span className={`status-badge ${doc.status}`}>
+                                        {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                                    </span>
+                                </div>
+                                {doc.status === 'completed' && (
+                                    <div className="chapters-list">
+                                        {doc.chapters.map((chapter, index) => (
+                                            <div key={index} className="chapter-item">
+                                                <span>{chapter.title}</span>
+                                                <button onClick={() => handleTTSConvert(doc._id, index)}>
+                                                    Convert to Speech
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
+                                )}
                             </div>
-                        )}
+                        ))}
                     </div>
-                ))}
+                </div>
+                
+                <div className="upload-section">
+                    <h2>Upload Document</h2>
+                    <form onSubmit={handleUpload}>
+                        <input 
+                            type="file" 
+                            accept=".pdf"
+                            onChange={handleFileChange}
+                        />
+                        <button type="submit" disabled={!selectedFile}>
+                            Upload PDF
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     );
