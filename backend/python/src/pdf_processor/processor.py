@@ -16,9 +16,12 @@ class PDFProcessor:
     def extract_text(self, pdf_file):
         """Extract text from PDF file object"""
         try:
+            logger.info("Extracting text from PDF file")
             reader = PdfReader(pdf_file)
+            logger.info(f"PDF file has {len(reader.pages)} pages")
             text = ""
             for page in reader.pages:
+                # logger.info(f"Extracting text from page {page.page_number}")
                 text += page.extract_text() + "\n"
             return text
         except Exception as e:

@@ -7,7 +7,7 @@ const DocumentsPage = () => {
     const token = localStorage.getItem('auth-token');
     const [documents, setDocuments] = useState([]);
     const [selectedFile, setSelectedFile] = useState(null);
-    const [uploadProgress, setUploadProgress] = useState(0);
+    const [processingDocs, setProcessingDocs] = useState(new Set());
 
     useEffect(() => {
         if (!token) {
@@ -27,11 +27,28 @@ const DocumentsPage = () => {
             const data = await response.json();
             if (data.success) {
                 setDocuments(data.documents);
+                // Update processing docs set
+                const stillProcessing = new Set(
+                    data.documents
+                        .filter(doc => doc.status === 'processing')
+                        .map(doc => doc._id)
+                );
+                setProcessingDocs(stillProcessing);
             }
         } catch (error) {
             console.error('Error fetching documents:', error);
         }
     };
+
+    // Poll for updates while documents are processing
+    useEffect(() => {
+        fetchDocuments();
+        
+        if (processingDocs.size > 0) {
+            const interval = setInterval(fetchDocuments, 3000); // Poll every 3 seconds
+            return () => clearInterval(interval);
+        }
+    }, [processingDocs.size]);
 
     const handleFileChange = (event) => {
         setSelectedFile(event.target.files[0]);
@@ -56,10 +73,13 @@ const DocumentsPage = () => {
             const data = await response.json();
             if (data.success) {
                 setSelectedFile(null);
+                // Add new document to processing set
+                setProcessingDocs(prev => new Set(prev).add(data.document_id));
+                // Fetch updated document list
                 fetchDocuments();
             }
         } catch (error) {
-            console.error('Upload error:', error);
+            console.error('Error uploading document:', error);
         }
     };
 
@@ -83,8 +103,12 @@ const DocumentsPage = () => {
                 <h2>Your Documents</h2>
                 {documents.map((doc) => (
                     <div key={doc._id} className="document-card">
-                        <h3>{doc.filename}</h3>
-                        <p>Status: {doc.status}</p>
+                        <div className="document-header">
+                            <h3>{doc.filename}</h3>
+                            <span className={`status-badge ${doc.status}`}>
+                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                            </span>
+                        </div>
                         {doc.status === 'completed' && (
                             <div className="chapters-list">
                                 {doc.chapters.map((chapter, index) => (

@@ -11,9 +11,18 @@ from processor import PDFProcessor
 from bson.objectid import ObjectId
 import datetime
 import time
+import io
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+# Reduce logging from other libraries
+logging.getLogger('pika').setLevel(logging.WARNING)
+logging.getLogger('pymongo').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -43,42 +52,37 @@ def process_pdf(ch, method, properties, body):
         data = json.loads(body)
         doc_id = data['doc_id']
         pdf_id = data['pdf_id']
-        user_id = data['user_id']
-
-        logger.info(f"Processing PDF document: {doc_id}")
-
-        try:
-            # Get PDF from GridFS
-            pdf_file = fs.get(ObjectId(pdf_id))
-        except Exception as e:
-            logger.error(f"Failed to retrieve PDF from GridFS: {str(e)}")
-            raise
-
-        try:
-            # Process PDF
-            text = pdf_processor.extract_text(pdf_file)
-            chapters = pdf_processor.segment_chapters(text)
-        except Exception as e:
-            logger.error(f"Failed to process PDF content: {str(e)}")
-            raise
-
-        try:
-            # Update document with chapters
-            mongo.db.documents.update_one(
-                {"_id": ObjectId(doc_id)},
-                {
-                    "$set": {
-                        "chapters": chapters,
-                        "status": "completed",
-                        "processed_at": datetime.datetime.utcnow()
-                    }
+        
+        logger.info(f"Processing document: {doc_id}")
+        
+        # Get PDF from GridFS and convert to BytesIO
+        logger.info(f"Retrieving PDF file from GridFS with ID: {pdf_id}")
+        pdf_file = fs.get(ObjectId(pdf_id))
+        pdf_content = pdf_file.read()
+        pdf_io = io.BytesIO(pdf_content)
+        
+        # Process PDF
+        logger.info("Extracting text from PDF")
+        text = pdf_processor.extract_text(pdf_io)
+        logger.info("Segmenting chapters")
+        chapters = pdf_processor.segment_chapters(text)
+        
+        # Update document status
+        result = mongo.db.documents.update_one(
+            {"_id": ObjectId(doc_id)},
+            {
+                "$set": {
+                    "chapters": chapters,
+                    "status": "completed",
+                    "processed_at": datetime.datetime.utcnow(),
+                    "title": pdf_file.filename
                 }
-            )
-        except Exception as e:
-            logger.error(f"Failed to update document status: {str(e)}")
-            raise
-
-        logger.info(f"Successfully processed document {doc_id}")
+            }
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Document {doc_id} processed successfully")
+        
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:

@@ -83,4 +83,32 @@
 
 .chapter-item button:hover {
     background: #1976D2;
+}
+
+.document-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.status-badge.processing {
+    background-color: #ffd700;
+    color: #000;
+}
+
+.status-badge.completed {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.status-badge.failed {
+    background-color: #f44336;
+    color: white;
 } 
