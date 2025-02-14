@@ -16,9 +16,9 @@ const Navbar = () => {
             <div className="nav-brand">Stories Now</div>
             {token && (
                 <div className="nav-links">
-                    <Link to="/tts">Text to Speech</Link>
+                    <Link to="/tts">Text-to-Speech</Link>
+                    <Link to="/chat">ChatBot</Link>
                     <Link to="/documents">Documents</Link>
-                    <Link to="/chat">Chat</Link>
                     <button onClick={handleLogout}>Logout</button>
                 </div>
             )}
