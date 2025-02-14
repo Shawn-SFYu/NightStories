@@ -13,7 +13,11 @@ import soundfile as sf
 from kokoro import KPipeline
 from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -42,6 +46,7 @@ def generate_audio(generator):
     audio_segments = []
     
     for i, (gs, ps, audio) in enumerate(generator):
+        logger.info(f"Generated audio segment {i}")
         audio_segments.append(audio)
     # Concatenate all audio segments
     combined_audio = np.concatenate(audio_segments)
@@ -54,29 +59,53 @@ def generate_audio(generator):
 
 def process_tts(message):
     try:
+        logger.info("Starting TTS processing")
         data = json.loads(message)
+        text = data['text']
+        msg_type = data.get('type', 'direct')
+        logger.info(f"Processing {msg_type} conversion, text length: {len(text)}")
         
+        # Set up metadata based on message type
+        metadata = {
+            'task_id': data['task_id'],
+            'user_id': data['user_id'],
+            'type': msg_type
+        }
+        
+        if msg_type == 'chapter':
+            logger.info(f"Processing chapter {data['chapter_index']} from document {data['doc_id']}")
+            metadata.update({
+                'doc_id': data['doc_id'],
+                'chapter_index': data['chapter_index']
+            })
+        
+        logger.info("Initializing TTS pipeline")
         generator = pipeline(
-            data['text'],
+            text,
             voice='af_heart',
             speed=1,
             split_pattern=r'\n+'
         )
         
+        logger.info("Generating audio")
         audio_buffer = generate_audio(generator)
         
+        logger.info("Saving to GridFS")
         file_id = fs.put(
             audio_buffer.getvalue(),
             filename=f'tts_{data["task_id"]}.mp3',
             content_type='audio/mp3',
-            metadata={
-                'task_id': data['task_id'],
-                'user_id': data['user_id']
-            }
+            metadata=metadata
         )
+        logger.info(f"Successfully saved audio with file_id: {file_id}")
         return str(file_id)
+        
+    except KeyError as e:
+        logger.error(f"Missing required field in message: {str(e)}")
+        return None
     except Exception as e:
         logger.error(f"TTS processing error: {str(e)}")
+        logger.exception("Full traceback:")
         return None
 
 def main():
@@ -111,15 +140,22 @@ def main():
             
             def callback(ch, method, properties, body):
                 try:
-                    logger.info("Received message")
-                    file_id = process_tts(body)
+                    logger.info("Received new message")
+                    message = body.decode()
+                    logger.info("Processing message")
+                    file_id = process_tts(message)
+                    
                     if file_id:
+                        logger.info("Successfully processed message")
                         ch.basic_ack(delivery_tag=method.delivery_tag)
                     else:
-                        ch.basic_nack(delivery_tag=method.delivery_tag)
+                        logger.error("Failed to process message")
+                        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                    
                 except Exception as e:
-                    logger.error(f"Error processing message: {str(e)}")
-                    ch.basic_nack(delivery_tag=method.delivery_tag)
+                    logger.error(f"Error in callback: {str(e)}")
+                    logger.exception("Full traceback:")
+                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
             
             channel.basic_consume(
                 queue="tts_queue",

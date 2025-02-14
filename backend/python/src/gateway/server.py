@@ -278,5 +278,67 @@ def get_documents():
             "error": "Failed to fetch documents"
         }), 500
 
+@app.route('/tts/convert-chapter', methods=['POST'])
+def convert_chapter():
+    try:
+        # Verify token
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"success": False, "errors": "No token provided"}), 401
+
+        user_id = validate.token(token.split(' ')[1])
+        if not user_id:
+            return jsonify({"success": False, "errors": "Invalid token"}), 401
+
+        data = request.json
+        doc_id = data.get('doc_id')
+        chapter_index = data.get('chapter_index')
+
+        # Get document and chapter
+        document = mongo.db.documents.find_one({
+            "_id": ObjectId(doc_id),
+            "user_id": user_id
+        })
+
+        if not document:
+            return jsonify({"success": False, "error": "Document not found"}), 404
+
+        if chapter_index >= len(document['chapters']):
+            return jsonify({"success": False, "error": "Chapter index out of range"}), 400
+
+        chapter = document['chapters'][chapter_index]
+        if not chapter.get('content'):
+            return jsonify({"success": False, "error": "Chapter has no content"}), 400
+
+        # Generate task ID
+        task_id = str(ObjectId())
+
+        # Send to RabbitMQ for processing
+        with get_rabbitmq_channel() as channel:
+            channel.basic_publish(
+                exchange='',
+                routing_key='tts_queue',
+                body=json.dumps({
+                    'task_id': task_id,
+                    'user_id': user_id,
+                    'text': chapter['content'],
+                    'type': 'chapter',
+                    'doc_id': doc_id,
+                    'chapter_index': chapter_index
+                }),
+                properties=pika.BasicProperties(
+                    delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE
+                )
+            )
+
+        return jsonify({
+            "success": True,
+            "task_id": task_id
+        })
+
+    except Exception as e:
+        logger.error(f"Chapter conversion error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)

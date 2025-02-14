@@ -78,6 +78,49 @@ const TTSPage = () => {
         }
     };
 
+    const handleTTSConvert = async (docId, chapterIndex) => {
+        try {
+            // Submit chapter for conversion
+            const response = await fetch('http://localhost:5000/tts/convert-chapter', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    doc_id: docId,
+                    chapter_index: chapterIndex 
+                }),
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                // Poll for audio completion
+                const checkAudioStatus = setInterval(async () => {
+                    const statusResponse = await fetch(`http://localhost:5000/tts/status/${data.task_id}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                        },
+                    });
+                    const statusData = await statusResponse.json();
+                    
+                    if (statusData.status === 'completed') {
+                        clearInterval(checkAudioStatus);
+                        setAudioUrl(`http://localhost:5000/tts/audio/${statusData.file_id}`);
+                    } else if (statusData.status === 'failed') {
+                        clearInterval(checkAudioStatus);
+                        alert('Audio generation failed');
+                    }
+                }, 2000); // Check every 2 seconds
+            } else {
+                alert(data.error);
+            }
+        } catch (error) {
+            console.error('Chapter conversion error:', error);
+            alert('Failed to convert chapter to speech');
+        }
+    };
+
     // Play the audio file when the button is clicked.
     const handlePlayAudio = () => {
         if (audioUrl) {
@@ -120,16 +163,22 @@ const TTSPage = () => {
                             {documents.map((doc) => (
                                 <div key={doc._id} className="document-item">
                                     <h3>{doc.filename}</h3>
-                                    <div className="chapters-list">
-                                        {doc.chapters.map((chapter, index) => (
-                                            <div key={index} className="chapter-item">
-                                                <span>{chapter.title}</span>
-                                                <button onClick={() => handleTTSConvert(doc._id, index)}>
-                                                    Convert to Speech
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    {doc.status === 'processing' ? (
+                                        <p>Document is still being processed...</p>
+                                    ) : doc.chapters && doc.chapters.length > 0 ? (
+                                        <div className="chapters-list">
+                                            {doc.chapters.map((chapter, index) => (
+                                                <div key={index} className="chapter-item">
+                                                    <span>{chapter.title}</span>
+                                                    <button onClick={() => handleTTSConvert(doc._id, index)}>
+                                                        Convert to Speech
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p>No chapters found in this document</p>
+                                    )}
                                 </div>
                             ))}
                         </div>
