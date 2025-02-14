@@ -30,89 +30,132 @@
   }
   
   .tts-content {
-    left: 10%;
-    display: flex;
-    height: 100%;
-    align-items: center;
-    justify-content: left;
-    padding: 20px;
-    gap: 30%;
-  }
-  
-  /* Left side: text input and generation button */
-  .tts-content .left-side {
-    margin-left: 2%;
-    width: 38%;
     display: flex;
     justify-content: center;
-    align-items: center;
-    flex-direction: column;
+    align-items: flex-start;
+    gap: 40px;
+    min-height: 100vh;
+    padding: 40px;
   }
   
-  .left-side form {
-    height: 100%;
-    width: 100%;
-    background-color: rgba(255, 255, 255, 0.8);
+  .tts-form-container {
+    width: 600px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  }
+  
+  .tabs-container {
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  }
+  
+  .tab-button {
+    min-width: 150px;
+    padding: 10px 20px;
+    border: none;
     border-radius: 8px;
-    margin: 20px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    background: rgba(30, 144, 255, 0.1);
+    color: #1E90FF;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+    margin: 0 5px;
+  }
+  
+  .tab-button.active {
+    background: #1E90FF;
+    color: white;
+  }
+  
+  .tts-form {
+    padding: 20px;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    gap: 20px;
   }
   
-  .left-side textarea {
-    width: 95%;
+  .tts-form textarea {
+    width: 100%;
     height: 300px;
+    padding: 15px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
     resize: none;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    margin: 10px;
     font-size: 16px;
-    background-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.9);
   }
   
-  .left-side button {
-    width: 50%;
-    margin: 10px auto;
-    display: block;
-    padding: 10px 20px;
-    background-color: rgba(0, 123, 255, 0.8);
+  .generate-button {
+    width: 100%;
+    padding: 15px;
+    background: #1E90FF;
     color: white;
     border: none;
     border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  
+  .generate-button:hover {
+    background: #1976D2;
+  }
+  
+  .documents-list {
+    padding: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  
+  .document-item {
+    margin-bottom: 15px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 8px;
+  }
+  
+  .chapter-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  }
+  
+  .chapter-item:last-child {
+    border-bottom: none;
+  }
+  
+  .chapter-item button {
+    padding: 8px 16px;
+    background: #1E90FF;
+    color: white;
+    border: none;
+    border-radius: 6px;
     cursor: pointer;
   }
   
-  /* Right side: area for displaying and playing the audio */
-  .tts-content .right-side {
-    left: 5%;
-    flex: 1;
-    max-width: 400px;
-    margin-left: 20px;
-    background-color: rgba(255, 255, 255, 0.8);
-    border-radius: 8px;
+  .right-side {
+    width: 300px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 15px;
     padding: 20px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    align-items: center;
-    display: flex;
-    flex-direction: column;
+    position: sticky;
+    top: 40px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   }
   
   .audio-container {
     margin-top: 20px;
-    text-align: center;
   }
   
-  .right-side .audio-container button {
-    width: 50%;
-    margin-top: 10px auto;
-    display: block;
-    padding: 10px 20px;
-    background-color: #28a745;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
+  .audio-container audio {
+    width: 100%;
   }
   
