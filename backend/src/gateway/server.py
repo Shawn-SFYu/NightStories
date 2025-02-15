@@ -15,6 +15,7 @@ from contextlib import contextmanager
 import json
 from werkzeug.utils import secure_filename
 import datetime
+import requests
 
 from auth_svc import access
 from auth import validate
@@ -402,6 +403,47 @@ def convert_text():
         return jsonify({
             "success": False,
             "error": "Failed to convert text"
+        }), 500
+
+@app.route('/chat', methods=['POST'])
+def process_chat():
+    try:
+        # Token verification
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"success": False, "errors": "No token provided"}), 401
+
+        user_id = validate.token(token.split(' ')[1])
+        if not user_id:
+            return jsonify({"success": False, "errors": "Invalid token"}), 401
+
+        data = request.json
+        doc_ids = data.get('doc_ids', [])
+        message = data.get('message')
+
+        # Forward request to chatbot service
+        response = requests.post(
+            'http://localhost:5003/chat',  # Direct localhost connection
+            json={
+                'message': message,
+                'doc_ids': doc_ids,
+                'user_id': user_id
+            }
+        )
+
+        return response.json(), response.status_code
+
+    except requests.RequestException as e:
+        logger.error(f"Failed to connect to chatbot service: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Chat service unavailable"
+        }), 503
+    except Exception as e:
+        logger.error(f"Chat processing error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to process chat message"
         }), 500
 
 if __name__ == '__main__':

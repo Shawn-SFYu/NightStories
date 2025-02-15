@@ -99,6 +99,11 @@ class PDFProcessor:
                     "embedding": {
                         "type": "Point",
                         "coordinates": embedding
+                    },
+                    "metadata": {
+                        "total_chunks": len(chunks),
+                        "char_length": len(chunk_text),
+                        "created_at": datetime.datetime.utcnow()
                     }
                 })
             

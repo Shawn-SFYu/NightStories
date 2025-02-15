@@ -1,11 +1,13 @@
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import HumanMessage, SystemMessage
 import logging
 import numpy as np
 from bson.objectid import ObjectId
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class ChatProcessor:
     def __init__(self, mongo_db):
@@ -20,34 +22,36 @@ class ChatProcessor:
         try:
             # Generate query embedding
             query_embedding = self.embeddings.embed_query(message)
+            logger.info(f"Query embedding generated")
             
-            # Find similar content from vectors collection
-            similar_vectors = self.db.vectors.find(
+            # Find similar content using aggregation pipeline
+            pipeline = [
                 {
-                    "document_id": {"$in": [ObjectId(doc_id) for doc_id in doc_ids]},
-                    "$near": {
-                        "$geometry": {
+                    "$geoNear": {
+                        "near": {
                             "type": "Point",
                             "coordinates": query_embedding
                         },
-                        "$maxDistance": 0.8
+                        "distanceField": "distance",
+                        "spherical": True,
+                        "query": {
+                            "document_id": {"$in": [ObjectId(doc_id) for doc_id in doc_ids]}
+                        }
                     }
-                }
-            ).limit(5)
+                },
+                {"$limit": 5}
+            ]
             
-            # Get relevant content directly from vectors
+            similar_vectors = list(self.db.vectors.aggregate(pipeline))
+            logger.info(f"Found {len(similar_vectors)} similar vectors")
+            
+            # Get relevant content
             context = [vector["content"] for vector in similar_vectors]
             
             # Prepare messages for ChatGPT
             messages = [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that answers questions based on the provided document context."
-                },
-                {
-                    "role": "user",
-                    "content": f"Context: {' '.join(context)}\n\nQuestion: {message}"
-                }
+                SystemMessage(content="You are a helpful assistant that answers questions based on the provided document context."),
+                HumanMessage(content=f"Context: {' '.join(context)}\n\nQuestion: {message}")
             ]
             
             completion = self.llm.predict_messages(messages)
