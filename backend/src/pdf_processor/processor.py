@@ -66,6 +66,80 @@ class PDFProcessor:
             
         return chapters
 
+    def store_embeddings(self, text, doc_id, chapter_id, mongo_db):
+        try:
+            # Generate embeddings for the text
+            embedding = self.embeddings.encode(text).tolist()
+            
+            # Store in MongoDB vectors collection
+            mongo_db.vectors.insert_one({
+                "document_id": doc_id,
+                "chapter_id": chapter_id,
+                "embedding": {
+                    "type": "Point",
+                    "coordinates": embedding
+                }
+            })
+            logger.info(f"Stored embeddings for doc {doc_id}, chapter {chapter_id}")
+        except Exception as e:
+            logger.error(f"Error storing embeddings: {str(e)}")
+            raise
+
+    def process_pdf(self, pdf_file, doc_id, mongo_db):
+        """Process PDF file and store text and embeddings"""
+        try:
+            logger.info(f"Processing PDF for document {doc_id}")
+            
+            # Extract text from PDF
+            text = self.extract_text(pdf_file)
+            
+            # Split text into chapters/sections
+            doc = self.nlp(text)
+            chapters = []
+            current_chapter = ""
+            chapter_id = 0
+            
+            for paragraph in doc.sents:
+                current_chapter += paragraph.text + "\n"
+                
+                # Simple heuristic: split into chunks of roughly equal size
+                if len(current_chapter) > 2000:  # Adjust size as needed
+                    chapters.append({
+                        "chapter_id": chapter_id,
+                        "content": current_chapter.strip()
+                    })
+                    
+                    # Store embeddings for this chapter
+                    self.store_embeddings(
+                        current_chapter.strip(),
+                        doc_id,
+                        chapter_id,
+                        mongo_db
+                    )
+                    
+                    current_chapter = ""
+                    chapter_id += 1
+            
+            # Don't forget the last chapter
+            if current_chapter.strip():
+                chapters.append({
+                    "chapter_id": chapter_id,
+                    "content": current_chapter.strip()
+                })
+                self.store_embeddings(
+                    current_chapter.strip(),
+                    doc_id,
+                    chapter_id,
+                    mongo_db
+                )
+            
+            logger.info(f"Processed {len(chapters)} chapters for document {doc_id}")
+            return chapters
+            
+        except Exception as e:
+            logger.error(f"PDF processing error: {str(e)}")
+            raise
+
 def test_pdf_processor():
     try:
         # Initialize processor
