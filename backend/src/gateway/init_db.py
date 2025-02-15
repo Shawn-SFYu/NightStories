@@ -59,7 +59,7 @@ def init_db():
             mongo.db.create_collection("vectors")
             mongo.db.vectors.create_index([
                 ("document_id", 1),
-                ("chapter_id", 1)
+                ("chunk_id", 1)
             ])
             mongo.db.vectors.create_index([
                 ("embedding", "2dsphere")

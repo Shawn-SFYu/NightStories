@@ -64,22 +64,13 @@ def process_tts(message):
         logger.info("Starting TTS processing")
         data = json.loads(message)
         text = data['text']
-        msg_type = data.get('type', 'direct')
-        logger.info(f"Processing {msg_type} conversion, text length: {len(text)}")
         
-        # Set up metadata based on message type
         metadata = {
             'task_id': data['task_id'],
             'user_id': data['user_id'],
-            'type': msg_type
+            'doc_id': data['doc_id'],
+            'type': 'document'
         }
-        
-        if msg_type == 'chapter':
-            logger.info(f"Processing chapter {data['chapter_index']} from document {data['doc_id']}")
-            metadata.update({
-                'doc_id': data['doc_id'],
-                'chapter_index': data['chapter_index']
-            })
         
         logger.info("Initializing TTS pipeline")
         generator = pipeline(
@@ -102,9 +93,6 @@ def process_tts(message):
         logger.info(f"Successfully saved audio with file_id: {file_id}")
         return str(file_id)
         
-    except KeyError as e:
-        logger.error(f"Missing required field in message: {str(e)}")
-        return None
     except Exception as e:
         logger.error(f"TTS processing error: {str(e)}")
         logger.exception("Full traceback:")

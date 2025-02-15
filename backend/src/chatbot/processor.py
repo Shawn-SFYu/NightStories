@@ -14,13 +14,9 @@ class ChatProcessor:
             model_name="gpt-3.5-turbo"
         )
         self.embeddings = OpenAIEmbeddings()
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
-        )
         self.db = mongo_db
         
-    def process_chat(self, message, documents_content):
+    def process_chat(self, message, doc_ids):
         try:
             # Generate query embedding
             query_embedding = self.embeddings.embed_query(message)
@@ -28,6 +24,7 @@ class ChatProcessor:
             # Find similar content from vectors collection
             similar_vectors = self.db.vectors.find(
                 {
+                    "document_id": {"$in": [ObjectId(doc_id) for doc_id in doc_ids]},
                     "$near": {
                         "$geometry": {
                             "type": "Point",
@@ -38,14 +35,8 @@ class ChatProcessor:
                 }
             ).limit(5)
             
-            # Get relevant document content
-            context = []
-            for vector in similar_vectors:
-                doc = self.db.documents.find_one(
-                    {"_id": ObjectId(vector["document_id"])}
-                )
-                if doc:
-                    context.append(doc["chapters"][vector["chapter_id"]]["content"])
+            # Get relevant content directly from vectors
+            context = [vector["content"] for vector in similar_vectors]
             
             # Prepare messages for ChatGPT
             messages = [

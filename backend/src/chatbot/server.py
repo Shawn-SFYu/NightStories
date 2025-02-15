@@ -41,18 +41,16 @@ chat_processor = ChatProcessor(mongo.db)
 @app.route('/chat', methods=['POST'])
 def process_chat():
     try:
-        # Token verification (similar to your gateway/server.py)
         token = request.headers.get('Authorization')
         if not token:
             return jsonify({"success": False, "errors": "No token provided"}), 401
 
-        # Get documents content from MongoDB
         data = request.json
         doc_ids = data.get('doc_ids', [])
         message = data.get('message')
         user_id = data.get('user_id')
 
-        documents_content = []
+        # Verify document access
         for doc_id in doc_ids:
             doc = mongo.db.documents.find_one({
                 "_id": ObjectId(doc_id),
@@ -60,12 +58,9 @@ def process_chat():
             })
             if not doc:
                 return jsonify({"success": False, "error": "Document not found or access denied"}), 404
-            if doc and doc.get('chapters'):
-                content = "\n\n".join([chapter.get('content', '') for chapter in doc['chapters']])
-                documents_content.append(content)
 
-        # Process chat with documents context
-        response = chat_processor.process_chat(message, documents_content)
+        # Process chat with document IDs
+        response = chat_processor.process_chat(message, doc_ids)
 
         return jsonify({
             "success": True,

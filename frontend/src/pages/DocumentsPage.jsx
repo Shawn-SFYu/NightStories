@@ -97,7 +97,8 @@ const DocumentsPage = () => {
                                         {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
                                     </span>
                                 </div>
-                                {doc.status === 'completed' && (
+                                {doc.status === 'completed'  /*
+                                    && (
                                     <div className="chapters-list">
                                         {doc.chapters.map((chapter, index) => (
                                             <div key={index} className="chapter-item">
@@ -106,9 +107,9 @@ const DocumentsPage = () => {
                                                     Convert to Speech
                                                 </button>
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
+                                        ))} 
+                                    </div>) */
+                                }
                             </div>
                         ))}
                     </div>

@@ -56,31 +56,14 @@ def process_pdf(ch, method, properties, body):
         logger.info(f"Processing document: {doc_id}")
         
         # Get PDF from GridFS and convert to BytesIO
-        logger.info(f"Retrieving PDF file from GridFS with ID: {pdf_id}")
         pdf_file = fs.get(ObjectId(pdf_id))
         pdf_content = pdf_file.read()
         pdf_io = io.BytesIO(pdf_content)
         
-        # Process PDF
-        logger.info("Extracting text from PDF")
-        text = pdf_processor.extract_text(pdf_io)
-        logger.info("Segmenting chapters")
-        chapters = pdf_processor.segment_chapters(text)
+        # Process PDF with new chunking method
+        success = pdf_processor.process_pdf(pdf_io, doc_id, mongo.db)
         
-        # Update document status
-        result = mongo.db.documents.update_one(
-            {"_id": ObjectId(doc_id)},
-            {
-                "$set": {
-                    "chapters": chapters,
-                    "status": "completed",
-                    "processed_at": datetime.datetime.utcnow(),
-                    "title": pdf_file.filename
-                }
-            }
-        )
-        
-        if result.modified_count > 0:
+        if success:
             logger.info(f"Document {doc_id} processed successfully")
         
         ch.basic_ack(delivery_tag=method.delivery_tag)

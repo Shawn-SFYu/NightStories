@@ -24,6 +24,7 @@ from tts.producer import submit_tts
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger('pymongo').setLevel(logging.WARNING)
 logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('pika').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -136,9 +137,75 @@ def get_audio(file_id):
         return jsonify({"success": False, "error": "Failed to retrieve audio"}), 500
 
 @app.route('/tts/submit', methods=['POST'])
-def handle_tts_submit():
-    with get_rabbitmq_channel() as channel:
-        return submit_tts(channel, validate.token)
+def submit_tts():
+    try:
+        # Token verification
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"success": False, "errors": "No token provided"}), 401
+
+        user_id = validate.token(token.split(' ')[1])
+        if not user_id:
+            return jsonify({"success": False, "errors": "Invalid token"}), 401
+
+        data = request.json
+        doc_id = data.get('doc_id')
+        text = data.get('text')
+        logger.info(f"Received data: {data}")
+
+        if doc_id:
+            # Get document content
+            document = mongo.db.documents.find_one({
+                "_id": ObjectId(doc_id),
+                "user_id": user_id
+            })
+
+            
+            if not document:
+                return jsonify({"success": False, "error": "Document not found"}), 404
+            
+            if not document.get('content'):
+                logger.info(f"Document content not available: {document}")
+                return jsonify({"success": False, "error": "Document content not available"}), 400
+            
+            logger.info(f"Document content: {document.get('content')}")
+            text = document['content']
+            logger.info(f"Document content: {text}")
+
+        if not text:
+            return jsonify({"success": False, "error": "No text provided"}), 400
+
+        # Generate task ID
+        task_id = str(ObjectId())
+
+        # Send to RabbitMQ for processing
+        with get_rabbitmq_channel() as channel:
+            channel.basic_publish(
+                exchange='',
+                routing_key='tts_queue',
+                body=json.dumps({
+                    'task_id': task_id,
+                    'user_id': user_id,
+                    'text': text,
+                    'doc_id': str(doc_id) if doc_id else None,
+                    'type': 'document' if doc_id else 'text'
+                }),
+                properties=pika.BasicProperties(
+                    delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE
+                )
+            )
+
+        return jsonify({
+            "success": True,
+            "task_id": task_id
+        })
+
+    except Exception as e:
+        logger.error(f"TTS submission error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to submit text"
+        }), 500
 
 @app.route('/tts/status/<task_id>', methods=['GET'])
 def get_tts_status(task_id):
@@ -205,7 +272,8 @@ def upload_document():
             "type": "pdf",
             "status": "processing",
             "filename": secure_filename(file.filename),
-            "created_at": datetime.datetime.utcnow()
+            "created_at": datetime.datetime.utcnow(),
+            "content": "",  # Will be updated after processing
         })
 
         # Save PDF to GridFS for processing
@@ -278,10 +346,10 @@ def get_documents():
             "error": "Failed to fetch documents"
         }), 500
 
-@app.route('/tts/convert-chapter', methods=['POST'])
-def convert_chapter():
+@app.route('/tts/convert', methods=['POST'])
+def convert_text():
     try:
-        # Verify token
+        # Token verification
         token = request.headers.get('Authorization')
         if not token:
             return jsonify({"success": False, "errors": "No token provided"}), 401
@@ -292,23 +360,16 @@ def convert_chapter():
 
         data = request.json
         doc_id = data.get('doc_id')
-        chapter_index = data.get('chapter_index')
+        chunk_id = data.get('chunk_id')
 
-        # Get document and chapter
-        document = mongo.db.documents.find_one({
-            "_id": ObjectId(doc_id),
-            "user_id": user_id
+        # Get document chunk
+        vector = mongo.db.vectors.find_one({
+            "document_id": ObjectId(doc_id),
+            "chunk_id": chunk_id
         })
 
-        if not document:
-            return jsonify({"success": False, "error": "Document not found"}), 404
-
-        if chapter_index >= len(document['chapters']):
-            return jsonify({"success": False, "error": "Chapter index out of range"}), 400
-
-        chapter = document['chapters'][chapter_index]
-        if not chapter.get('content'):
-            return jsonify({"success": False, "error": "Chapter has no content"}), 400
+        if not vector:
+            return jsonify({"success": False, "error": "Chunk not found"}), 404
 
         # Generate task ID
         task_id = str(ObjectId())
@@ -321,10 +382,10 @@ def convert_chapter():
                 body=json.dumps({
                     'task_id': task_id,
                     'user_id': user_id,
-                    'text': chapter['content'],
-                    'type': 'chapter',
-                    'doc_id': doc_id,
-                    'chapter_index': chapter_index
+                    'text': vector['content'],
+                    'type': 'chunk',
+                    'doc_id': str(doc_id),
+                    'chunk_id': chunk_id
                 }),
                 properties=pika.BasicProperties(
                     delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE
@@ -337,8 +398,11 @@ def convert_chapter():
         })
 
     except Exception as e:
-        logger.error(f"Chapter conversion error: {str(e)}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.error(f"TTS conversion error: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to convert text"
+        }), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)

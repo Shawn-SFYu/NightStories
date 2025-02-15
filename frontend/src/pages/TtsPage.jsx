@@ -6,10 +6,12 @@ import './css/TtsPage.css';
 const TTSPage = () => {
     const navigate = useNavigate();
     const token = localStorage.getItem('auth-token');
-    const [activeTab, setActiveTab] = useState('text'); // 'text' or 'documents'
+    const [activeTab, setActiveTab] = useState('text');
     const [text, setText] = useState('');
     const [audioUrl, setAudioUrl] = useState(null);
     const [documents, setDocuments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         if (!token) {
@@ -23,15 +25,17 @@ const TTSPage = () => {
         try {
             const response = await fetch('http://localhost:5000/documents', {
                 headers: {
-                    'Authorization': `Bearer ${token}`,
-                },
+                    'Authorization': `Bearer ${token}`
+                }
             });
             const data = await response.json();
             if (data.success) {
-                setDocuments(data.documents.filter(doc => doc.status === 'completed'));
+                setDocuments(data.documents);
             }
-        } catch (error) {
-            console.error('Error fetching documents:', error);
+            setLoading(false);
+        } catch (err) {
+            setError('Failed to fetch documents');
+            setLoading(false);
         }
     };
 
@@ -78,24 +82,26 @@ const TTSPage = () => {
         }
     };
 
-    const handleTTSConvert = async (docId, chapterIndex) => {
+    const handleTTSConvert = async (docId) => {
         try {
-            // Submit chapter for conversion
-            const response = await fetch('http://localhost:5000/tts/convert-chapter', {
+            const response = await fetch('http://localhost:5000/tts/submit', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({ 
                     doc_id: docId,
-                    chapter_index: chapterIndex 
-                }),
+                    chunk_id: 0
+                })
             });
-
+            
+            if (!response.ok) {
+                throw new Error('Failed to start conversion');
+            }
+            
             const data = await response.json();
             if (data.success) {
-                // Poll for audio completion
                 const checkAudioStatus = setInterval(async () => {
                     const statusResponse = await fetch(`http://localhost:5000/tts/status/${data.task_id}`, {
                         headers: {
@@ -111,13 +117,11 @@ const TTSPage = () => {
                         clearInterval(checkAudioStatus);
                         alert('Audio generation failed');
                     }
-                }, 2000); // Check every 2 seconds
-            } else {
-                alert(data.error);
+                }, 2000);
             }
-        } catch (error) {
-            console.error('Chapter conversion error:', error);
-            alert('Failed to convert chapter to speech');
+        } catch (err) {
+            console.error('TTS conversion error:', err);
+            alert('Failed to convert document to speech');
         }
     };
 
@@ -160,27 +164,27 @@ const TTSPage = () => {
                         </form>
                     ) : (
                         <div className="documents-list">
-                            {documents.map((doc) => (
-                                <div key={doc._id} className="document-item">
-                                    <h3>{doc.filename}</h3>
-                                    {doc.status === 'processing' ? (
-                                        <p>Document is still being processed...</p>
-                                    ) : doc.chapters && doc.chapters.length > 0 ? (
-                                        <div className="chapters-list">
-                                            {doc.chapters.map((chapter, index) => (
-                                                <div key={index} className="chapter-item">
-                                                    <span>{chapter.title}</span>
-                                                    <button onClick={() => handleTTSConvert(doc._id, index)}>
-                                                        Convert to Speech
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p>No chapters found in this document</p>
-                                    )}
-                                </div>
-                            ))}
+                            {loading ? (
+                                <LoadingSpinner />
+                            ) : error ? (
+                                <ErrorMessage message={error} />
+                            ) : (
+                                documents.map((doc) => (
+                                    <div key={doc._id} className="document-item">
+                                        <h3>{doc.filename}</h3>
+                                        {doc.status === 'processing' ? (
+                                            <p>Document is still being processed...</p>
+                                        ) : (
+                                            <button 
+                                                onClick={() => handleTTSConvert(doc._id)}
+                                                className="convert-button"
+                                            >
+                                                Convert to Speech
+                                            </button>
+                                        )}
+                                    </div>
+                                ))
+                            )}
                         </div>
                     )}
                 </div>
