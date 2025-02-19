@@ -93,13 +93,10 @@ class PDFProcessor:
                 
                 # Store chunk and embedding in vectors collection
                 mongo_db.vectors.insert_one({
-                    "document_id": doc_id,
+                    "document_id": ObjectId(doc_id),
                     "chunk_id": chunk_id,
                     "content": chunk_text,
-                    "embedding": {
-                        "type": "Point",
-                        "coordinates": embedding
-                    },
+                    "embedding_vector": embedding,
                     "metadata": {
                         "total_chunks": len(chunks),
                         "char_length": len(chunk_text),

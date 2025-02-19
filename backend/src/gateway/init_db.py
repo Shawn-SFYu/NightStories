@@ -62,7 +62,7 @@ def init_db():
                 ("chunk_id", 1)
             ])
             mongo.db.vectors.create_index([
-                ("embedding", "2dsphere")
+                ("embedding_vector", 1)
             ])
             logger.info("Created vectors collection")
 
